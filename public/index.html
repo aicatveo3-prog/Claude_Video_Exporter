@@ -248,6 +248,8 @@
     }
     .auth-btn:hover { background: #4f46e5; }
     .auth-btn.ghost { background: transparent; border: 1px solid #2a2a33; color: #888; }
+    .auth-btn.google { width: 100%; background: #fff; color: #1f1f1f; padding: 12px; font-size: 0.95rem; }
+    .auth-btn.google:hover { background: #ececec; }
     .auth-user { flex: 1; font-size: 0.85rem; color: #ccc; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     .auth-quota { font-size: 0.75rem; color: #6b7280; }
@@ -261,8 +263,7 @@
     <!-- 로그인 바 -->
     <div class="auth-bar" id="authBar" style="display:none">
       <div class="auth-row" id="authLoggedOut">
-        <input type="email" id="emailInput" class="auth-email" placeholder="이메일 주소로 로그인">
-        <button id="loginBtn" class="auth-btn">로그인 링크 받기</button>
+        <button id="loginBtn" class="auth-btn google">Google로 로그인</button>
       </div>
       <div class="auth-row" id="authLoggedIn" style="display:none">
         <span class="auth-user" id="authUser"></span>
@@ -528,16 +529,11 @@
     }
 
     document.getElementById('loginBtn').addEventListener('click', async () => {
-      const email = document.getElementById('emailInput').value.trim();
-      if (!email) { alert('이메일을 입력해주세요.'); return; }
-      const btn = document.getElementById('loginBtn');
-      btn.disabled = true; btn.textContent = '전송 중...';
-      const { error } = await supabaseClient.auth.signInWithOtp({
-        email, options: { emailRedirectTo: window.location.origin }
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin }
       });
-      btn.disabled = false; btn.textContent = '로그인 링크 받기';
-      if (error) alert('전송 실패: ' + error.message);
-      else alert('메일로 로그인 링크를 보냈어요! 메일함에서 링크를 클릭하면 로그인됩니다.');
+      if (error) alert('로그인 실패: ' + error.message);
     });
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
