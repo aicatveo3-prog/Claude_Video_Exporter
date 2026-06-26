@@ -13,6 +13,7 @@ import { renderToMp4 } from './engine.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4747;
+console.log('Listening on port:', PORT);
 
 // 임시 디렉토리
 const TEMP_DIR = path.join(os.tmpdir(), 'universal-video-exporter');
@@ -145,7 +146,7 @@ function findFile(dir, filename) {
   return null;
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(parseInt(PORT), '0.0.0.0', () => {
   console.log('');
   console.log('  ▶ Universal Video Exporter');
   console.log(`    http://localhost:${PORT}`);
