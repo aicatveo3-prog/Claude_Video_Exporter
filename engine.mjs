@@ -18,7 +18,16 @@ export async function renderToMp4(url, outputPath, options = {}) {
   const viewportHeight = 1080;
 
   // ───── 1. 브라우저 실행 ─────
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-gpu',
+      '--single-process'
+    ]
+  });
   const context = await browser.newContext({
     viewport: {
       width: viewportWidth * scale,
