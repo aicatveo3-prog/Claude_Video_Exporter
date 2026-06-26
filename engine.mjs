@@ -24,8 +24,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
       '--disable-dev-shm-usage',
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-gpu',
-      '--disable-software-rasterizer'
+      '--disable-gpu'
     ]
   });
   const context = await browser.newContext({
