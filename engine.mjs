@@ -13,7 +13,9 @@ export async function renderToMp4(url, outputPath, options = {}) {
     onProgress = () => {}
   } = options;
 
-  const scale = resolution === '4k' ? 2 : 1;
+  // 1080p 고정 (scale=1). GPU 없는 Hobby 환경에선 4K(scale 2)가 렌더러를 OOM/segfault 시키므로
+  // UI를 우회해 resolution='4k'가 들어와도 1080p로 강제한다.
+  const scale = 1;
   const viewportWidth = 1920;
   const viewportHeight = 1080;
 
