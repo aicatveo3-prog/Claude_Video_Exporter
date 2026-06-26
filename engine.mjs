@@ -24,7 +24,11 @@ export async function renderToMp4(url, outputPath, options = {}) {
       '--disable-dev-shm-usage',
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-gpu'
+      // 헤드리스 컨테이너용 소프트웨어 WebGL: ANGLE → SwiftShader 백엔드를 명시
+      // (--disable-gpu로 암묵 폴백 시 SwiftShader가 불안정하게 segfault 나던 문제 대응)
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
+      '--enable-unsafe-swiftshader'
     ]
   });
   const context = await browser.newContext({
