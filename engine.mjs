@@ -25,7 +25,8 @@ export async function renderToMp4(url, outputPath, options = {}) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-gpu',
-      '--single-process'
+      '--disable-software-rasterizer',
+      '--js-flags=--max-old-space-size=256'
     ]
   });
   const context = await browser.newContext({
@@ -180,7 +181,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
     '-i', '-',
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
-    '-preset', 'medium',
+    '-preset', 'veryfast',
     '-crf', '18',
     '-movflags', '+faststart',
     outputPath
@@ -203,7 +204,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
     await page.waitForTimeout(10);
 
     // 스크린샷 (타임아웃 60초)
-    const buf = await page.screenshot({ type: 'png', timeout: 60000 });
+    const buf = await page.screenshot({ type: 'jpeg', quality: 90, timeout: 60000 });
     ffmpeg.stdin.write(buf);
 
     // 매 10프레임마다 진행률 전송
