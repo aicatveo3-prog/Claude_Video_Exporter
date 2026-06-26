@@ -25,8 +25,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-gpu',
-      '--disable-software-rasterizer',
-      '--js-flags=--max-old-space-size=256'
+      '--disable-software-rasterizer'
     ]
   });
   const context = await browser.newContext({
@@ -189,45 +188,75 @@ export async function renderToMp4(url, outputPath, options = {}) {
 
   ffmpeg.stderr.on('data', () => {});
 
+  // 긴 렌더 중 파이프가 끊겨도 프로세스 전체가 죽지 않도록 stdin 에러를 흡수
+  let ffmpegExited = false;
+  ffmpeg.on('exit', () => { ffmpegExited = true; });
+  ffmpeg.stdin.on('error', () => {});
+
   // ───── 4. 프레임별 렌더링 ─────
-  for (let i = 0; i < totalFrames; i++) {
-    const timeMs = i * frameDurationMs;
-    const timeSec = timeMs / 1000;
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      const timeMs = i * frameDurationMs;
+      const timeSec = timeMs / 1000;
 
-    if (stageInfo.isStage) {
-      await page.evaluate((t) => window.__seek(t), timeSec);
-    } else {
-      await page.evaluate((ms) => window.__setVirtualTime(ms), timeMs);
+      if (stageInfo.isStage) {
+        await page.evaluate((t) => window.__seek(t), timeSec);
+      } else {
+        await page.evaluate((ms) => window.__setVirtualTime(ms), timeMs);
+      }
+
+      // DOM 업데이트 대기
+      await page.waitForTimeout(10);
+
+      // ffmpeg가 먼저 죽었으면 즉시 중단 (긴 렌더 중 인코더 OOM 등)
+      if (ffmpegExited) {
+        throw new Error('ffmpeg가 예기치 않게 종료되었습니다 (프레임 ' + (i + 1) + ')');
+      }
+
+      // 스크린샷 (타임아웃 60초)
+      const buf = await page.screenshot({ type: 'jpeg', quality: 90, timeout: 60000 });
+
+      // 백프레셔: 인코딩이 스크린샷보다 느릴 때 프레임이 메모리에 무한정 쌓이지 않도록
+      // write()가 false면 drain(또는 ffmpeg 종료)까지 대기 — 7200프레임급 긴 렌더의 OOM 방지
+      const ok = ffmpeg.stdin.write(buf);
+      if (!ok) {
+        await new Promise((resolve) => {
+          const done = () => {
+            ffmpeg.stdin.off('drain', done);
+            ffmpeg.off('close', done);
+            resolve();
+          };
+          ffmpeg.stdin.once('drain', done);
+          ffmpeg.once('close', done);
+        });
+      }
+
+      // 매 10프레임마다 진행률 전송
+      if (i % 10 === 0 || i === totalFrames - 1) {
+        onProgress({
+          status: 'rendering',
+          frame: i + 1,
+          totalFrames,
+          percent: ((i + 1) / totalFrames * 100).toFixed(1)
+        });
+      }
     }
 
-    // DOM 업데이트 대기
-    await page.waitForTimeout(10);
-
-    // 스크린샷 (타임아웃 60초)
-    const buf = await page.screenshot({ type: 'jpeg', quality: 90, timeout: 60000 });
-    ffmpeg.stdin.write(buf);
-
-    // 매 10프레임마다 진행률 전송
-    if (i % 10 === 0 || i === totalFrames - 1) {
-      onProgress({
-        status: 'rendering',
-        frame: i + 1,
-        totalFrames,
-        percent: ((i + 1) / totalFrames * 100).toFixed(1)
+    // ───── 5. 마무리 ─────
+    ffmpeg.stdin.end();
+    await new Promise((resolve, reject) => {
+      ffmpeg.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error('ffmpeg 오류 (코드 ' + code + ')'));
       });
-    }
-  }
-
-  // ───── 5. 마무리 ─────
-  ffmpeg.stdin.end();
-  await new Promise((resolve, reject) => {
-    ffmpeg.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error('ffmpeg 오류 (코드 ' + code + ')'));
     });
-  });
 
-  await browser.close();
-  onProgress({ status: 'done', frame: totalFrames, totalFrames, percent: '100.0' });
-  return outputPath;
+    onProgress({ status: 'done', frame: totalFrames, totalFrames, percent: '100.0' });
+    return outputPath;
+  } finally {
+    // 성공·실패와 무관하게 리소스 정리 — 렌더 중 크래시해도 브라우저/ffmpeg가 남지 않도록
+    try { ffmpeg.stdin.destroy(); } catch (e) {}
+    try { if (!ffmpegExited) ffmpeg.kill('SIGKILL'); } catch (e) {}
+    await browser.close().catch(() => {});
+  }
 }
