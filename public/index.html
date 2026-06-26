@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Universal Video Exporter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0c0c0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 3rem 1rem;
+    }
+
+    .app { max-width: 560px; width: 100%; }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+    .subtitle {
+      color: #888;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    .badge {
+      display: inline-block;
+      background: #1a1a2e;
+      color: #818cf8;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-left: 8px;
+      vertical-align: middle;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── 드롭 영역 ── */
+    .drop-zone {
+      border: 2px dashed #2a2a35;
+      border-radius: 14px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 1.5rem;
+    }
+    .drop-zone:hover { border-color: #4a4a5a; }
+    .drop-zone.dragover {
+      border-color: #818cf8;
+      background: rgba(129, 140, 248, 0.05);
+    }
+    .drop-zone.has-file {
+      border-color: #34d399;
+      background: rgba(52, 211, 153, 0.05);
+    }
+    .drop-icon {
+      font-size: 2rem;
+      margin-bottom: 0.8rem;
+    }
+    .drop-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .drop-hint { color: #666; font-size: 0.8rem; }
+    .file-name {
+      color: #34d399;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-top: 0.5rem;
+    }
+
+    /* ── 설정 패널 ── */
+    .settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .setting-group {
+      background: #13131a;
+      border-radius: 10px;
+      padding: 1rem;
+    }
+    .setting-group.full { grid-column: 1 / -1; }
+    .setting-label {
+      font-size: 0.7rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.6rem;
+    }
+    .btn-group { display: flex; gap: 6px; }
+    .btn-opt {
+      flex: 1;
+      background: #1e1e2a;
+      border: 1px solid #2a2a3a;
+      color: #aaa;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .btn-opt:hover { border-color: #555; color: #ddd; }
+    .btn-opt.active {
+      background: #818cf8;
+      border-color: #818cf8;
+      color: white;
+      font-weight: 600;
+    }
+
+    /* 영상 길이 입력 */
+    .duration-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .duration-input {
+      background: #1e1e2a;
+      border: 1px solid #2a2a3a;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      width: 80px;
+      text-align: center;
+      font-family: inherit;
+    }
+    .duration-input:focus { outline: none; border-color: #818cf8; }
+    .duration-unit { color: #888; font-size: 0.85rem; }
+    .duration-note { color: #666; font-size: 0.75rem; margin-top: 6px; }
+
+    /* ── 변환 버튼 ── */
+    .convert-btn {
+      width: 100%;
+      background: #818cf8;
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      margin-bottom: 1.5rem;
+    }
+    .convert-btn:hover { background: #6366f1; }
+    .convert-btn:disabled {
+      background: #2a2a3a;
+      color: #555;
+      cursor: not-allowed;
+    }
+
+    /* ── 진행률 ── */
+    .progress-panel {
+      display: none;
+      background: #13131a;
+      border-radius: 12px;
+      padding: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    .progress-panel.visible { display: block; }
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.8rem;
+    }
+    .progress-title { font-weight: 600; font-size: 0.95rem; }
+    .progress-pct { color: #818cf8; font-weight: 600; }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #1e1e2a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      width: 0%;
+      transition: width 0.15s;
+      border-radius: 3px;
+    }
+    .progress-info {
+      color: #666;
+      font-size: 0.8rem;
+      margin-top: 0.6rem;
+    }
+
+    /* ── 상태 메시지 ── */
+    .log {
+      display: none;
+      background: #13131a;
+      border-radius: 10px;
+      padding: 1rem;
+      max-height: 150px;
+      overflow-y: auto;
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+    .log.visible { display: block; }
+    .log-entry { padding: 2px 0; }
+    .log-entry.error { color: #f87171; }
+    .log-entry.info { color: #818cf8; }
+
+    /* ── 다운로드 ── */
+    .download-btn {
+      display: none;
+      width: 100%;
+      background: #34d399;
+      color: #0c0c0f;
+      border: none;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .download-btn:hover { background: #2dd4a3; }
+    .download-btn.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Video Exporter <span class="badge">ZIP · HTML 모두 지원</span></h1>
+    <p class="subtitle">클로드 디자인 애니메이션을 MP4로 변환합니다. 아무 형식이나 넣으세요.</p>
+
+    <!-- 드롭 영역 -->
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">↑</div>
+      <div class="drop-title">파일을 드래그하거나 클릭</div>
+      <div class="drop-hint">ZIP 또는 HTML 파일</div>
+    </div>
+    <input type="file" id="fileInput" accept=".zip,.html,.htm" hidden>
+
+    <!-- 설정 -->
+    <div class="settings">
+      <div class="setting-group">
+        <div class="setting-label">해상도</div>
+        <div class="btn-group">
+          <button class="btn-opt" data-group="res" data-value="1080p">1080p</button>
+          <button class="btn-opt active" data-group="res" data-value="4k">4K</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">프레임레이트</div>
+        <div class="btn-group">
+          <button class="btn-opt active" data-group="fps" data-value="60">60</button>
+          <button class="btn-opt" data-group="fps" data-value="30">30</button>
+        </div>
+      </div>
+      <div class="setting-group full">
+        <div class="setting-label">영상 길이</div>
+        <div class="duration-row">
+          <input type="number" class="duration-input" id="duration" value="10" min="1" max="300" step="1">
+          <span class="duration-unit">초</span>
+        </div>
+        <div class="duration-note">Stage 기반 프로젝트는 자동 감지되어 이 값이 무시됩니다</div>
+      </div>
+    </div>
+
+    <!-- 변환 버튼 -->
+    <button class="convert-btn" id="convertBtn" disabled>파일을 먼저 올려주세요</button>
+
+    <!-- 진행률 -->
+    <div class="progress-panel" id="progressPanel">
+      <div class="progress-header">
+        <span class="progress-title" id="progressTitle">준비 중...</span>
+        <span class="progress-pct" id="progressPct">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-info" id="progressInfo"></div>
+    </div>
+
+    <!-- 로그 -->
+    <div class="log" id="log"></div>
+
+    <!-- 다운로드 -->
+    <button class="download-btn" id="downloadBtn">MP4 다운로드</button>
+  </div>
+
+  <script>
+    // ── 상태 ──
+    let selectedFile = null;
+    const settings = { res: '4k', fps: '60' };
+
+    // ── 요소 ──
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const progressPanel = document.getElementById('progressPanel');
+    const progressTitle = document.getElementById('progressTitle');
+    const progressPct = document.getElementById('progressPct');
+    const progressFill = document.getElementById('progressFill');
+    const progressInfo = document.getElementById('progressInfo');
+    const logEl = document.getElementById('log');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    // ── 파일 선택 ──
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) setFile(e.target.files[0]);
+    });
+
+    function setFile(file) {
+      const name = file.name.toLowerCase();
+      if (!name.endsWith('.zip') && !name.endsWith('.html') && !name.endsWith('.htm')) {
+        alert('ZIP 또는 HTML 파일만 지원합니다.');
+        return;
+      }
+      selectedFile = file;
+      dropZone.classList.add('has-file');
+      dropZone.innerHTML = `
+        <div class="drop-icon">✓</div>
+        <div class="drop-title">파일 선택됨</div>
+        <div class="file-name">${file.name}</div>
+        <div class="drop-hint" style="margin-top:8px">다른 파일을 드래그하면 교체됩니다</div>
+      `;
+      convertBtn.disabled = false;
+      convertBtn.textContent = 'MP4로 변환하기';
+      downloadBtn.classList.remove('visible');
+    }
+
+    // ── 설정 버튼 ──
+    document.querySelectorAll('.btn-opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const group = btn.dataset.group;
+        document.querySelectorAll(`.btn-opt[data-group="${group}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        settings[group] = btn.dataset.value;
+      });
+    });
+
+    // ── 변환 ──
+    convertBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      convertBtn.disabled = true;
+      convertBtn.textContent = '변환 중...';
+      downloadBtn.classList.remove('visible');
+      progressPanel.classList.add('visible');
+      logEl.classList.add('visible');
+      logEl.innerHTML = '';
+      progressFill.style.width = '0%';
+      progressPct.textContent = '0%';
+      progressTitle.textContent = '준비 중...';
+      progressInfo.textContent = '';
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('duration', document.getElementById('duration').value);
+      formData.append('fps', settings.fps);
+      formData.append('resolution', settings.res);
+
+      try {
+        const response = await fetch('/api/render', {
+          method: 'POST',
+          body: formData
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              handleEvent(data);
+            } catch {}
+          }
+        }
+      } catch (err) {
+        addLog('연결 오류: ' + err.message, 'error');
+        progressTitle.textContent = '실패';
+      }
+
+      convertBtn.disabled = false;
+      convertBtn.textContent = 'MP4로 변환하기';
+    });
+
+    function handleEvent(data) {
+      if (data.status === 'info') {
+        addLog(data.message, 'info');
+        progressTitle.textContent = data.message;
+      }
+      else if (data.status === 'rendering') {
+        const pct = data.percent;
+        progressFill.style.width = pct + '%';
+        progressPct.textContent = pct + '%';
+        progressTitle.textContent = '렌더링 중';
+        progressInfo.textContent = `프레임 ${data.frame} / ${data.totalFrames}`;
+      }
+      else if (data.status === 'done') {
+        addLog('렌더링 완료', 'info');
+      }
+      else if (data.status === 'complete') {
+        progressTitle.textContent = '완료!';
+        progressFill.style.width = '100%';
+        progressPct.textContent = '100%';
+        downloadBtn.classList.add('visible');
+        downloadBtn.onclick = () => window.location.href = data.downloadUrl;
+        addLog('MP4 생성 완료 — 다운로드 가능', 'info');
+      }
+      else if (data.status === 'error') {
+        progressTitle.textContent = '실패';
+        addLog(data.message, 'error');
+      }
+    }
+
+    function addLog(msg, type = '') {
+      const el = document.createElement('div');
+      el.className = 'log-entry' + (type ? ' ' + type : '');
+      el.textContent = msg;
+      logEl.appendChild(el);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  </script>
+</body>
+</html>
