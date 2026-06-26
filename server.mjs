@@ -9,11 +9,27 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { renderToMp4 } from './engine.mjs';
+import { createClient } from '@supabase/supabase-js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4747;
 console.log('Listening on port:', PORT);
+
+// ───── Supabase (로그인 + 일일 한도) ─────
+// 환경변수가 없으면 인증 없이 동작(기존 그대로). 넣으면 자동으로 로그인+제한이 켜짐.
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '2', 10);
+
+const authEnabled = Boolean(SUPABASE_URL && SUPABASE_SECRET_KEY);
+const supabaseAdmin = authEnabled
+  ? createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false } })
+  : null;
+console.log('Auth/daily-limit:', authEnabled
+  ? `ENABLED (${DAILY_LIMIT}/day)`
+  : 'disabled (set SUPABASE_URL & SUPABASE_SECRET_KEY to enable)');
 
 // 임시 디렉토리
 const TEMP_DIR = path.join(os.tmpdir(), 'universal-video-exporter');
@@ -26,6 +42,16 @@ const upload = multer({ dest: path.join(TEMP_DIR, 'uploads') });
 
 // 정적 파일 (UI)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 프론트가 Supabase에 연결할 공개 설정 (url·publishable 키는 공개해도 안전)
+app.get('/api/config', (req, res) => {
+  res.json({
+    authEnabled,
+    supabaseUrl: SUPABASE_URL || null,
+    supabasePublishableKey: SUPABASE_PUBLISHABLE_KEY || null,
+    dailyLimit: DAILY_LIMIT
+  });
+});
 
 // 업로드 + 렌더링 (SSE로 실시간 진행률)
 app.post('/api/render', upload.single('file'), async (req, res) => {
@@ -43,6 +69,27 @@ app.post('/api/render', upload.single('file'), async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+  // ───── 인증 + 일일 한도 (authEnabled일 때만) ─────
+  if (authEnabled) {
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const fail = (msg) => {
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+      send({ status: 'error', message: msg });
+      return res.end();
+    };
+    if (!token) return fail('로그인이 필요합니다.');
+    const { data: u, error: uErr } = await supabaseAdmin.auth.getUser(token);
+    if (uErr || !u?.user) return fail('로그인이 만료되었어요. 다시 로그인해주세요.');
+    const { data: quota, error: qErr } = await supabaseAdmin.rpc('consume_render', {
+      p_user_id: u.user.id,
+      p_daily_limit: DAILY_LIMIT
+    });
+    if (qErr) return fail('사용량 확인 실패: ' + qErr.message);
+    if (!quota || !quota.allowed) {
+      return fail(`오늘 무료 ${DAILY_LIMIT}회를 모두 사용했어요. 내일 다시 시도해주세요. 🙂`);
+    }
+  }
 
   try {
     // ───── 파일 처리 ─────

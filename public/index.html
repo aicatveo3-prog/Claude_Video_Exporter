@@ -233,12 +233,43 @@
     }
     .download-btn:hover { background: #2dd4a3; }
     .download-btn.visible { display: block; }
+
+    /* ── 로그인 바 ── */
+    .auth-bar { margin-bottom: 1.5rem; }
+    .auth-row { display: flex; gap: 8px; align-items: center; }
+    .auth-email {
+      flex: 1; background: #16161b; border: 1px solid #2a2a33; color: #e0e0e0;
+      padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+    }
+    .auth-btn {
+      background: #6366f1; color: #fff; border: none; padding: 10px 14px;
+      border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      font-family: inherit; white-space: nowrap;
+    }
+    .auth-btn:hover { background: #4f46e5; }
+    .auth-btn.ghost { background: transparent; border: 1px solid #2a2a33; color: #888; }
+    .auth-user { flex: 1; font-size: 0.85rem; color: #ccc; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    .auth-quota { font-size: 0.75rem; color: #6b7280; }
   </style>
 </head>
 <body>
   <div class="app">
     <h1>Video Exporter <span class="badge">ZIP · HTML 모두 지원</span></h1>
     <p class="subtitle">클로드 디자인 애니메이션을 MP4로 변환합니다. 아무 형식이나 넣으세요.</p>
+
+    <!-- 로그인 바 -->
+    <div class="auth-bar" id="authBar" style="display:none">
+      <div class="auth-row" id="authLoggedOut">
+        <input type="email" id="emailInput" class="auth-email" placeholder="이메일 주소로 로그인">
+        <button id="loginBtn" class="auth-btn">로그인 링크 받기</button>
+      </div>
+      <div class="auth-row" id="authLoggedIn" style="display:none">
+        <span class="auth-user" id="authUser"></span>
+        <span class="auth-quota" id="authQuota"></span>
+        <button id="logoutBtn" class="auth-btn ghost">로그아웃</button>
+      </div>
+    </div>
 
     <!-- 드롭 영역 -->
     <div class="drop-zone" id="dropZone">
@@ -293,10 +324,17 @@
     <button class="download-btn" id="downloadBtn">MP4 다운로드</button>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // ── 상태 ──
     let selectedFile = null;
     const settings = { res: '1080p', fps: '60' };
+
+    // ── 로그인/한도 상태 ──
+    let supabaseClient = null;
+    let authRequired = false;
+    let dailyLimit = 2;
+    let session = null;
 
     // ── 요소 ──
     const dropZone = document.getElementById('dropZone');
@@ -358,6 +396,10 @@
     // ── 변환 ──
     convertBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
+      if (authRequired && !(session && session.user)) {
+        alert('변환하려면 먼저 로그인해주세요. 🙂');
+        return;
+      }
 
       convertBtn.disabled = true;
       convertBtn.textContent = '변환 중...';
@@ -377,9 +419,12 @@
       formData.append('resolution', settings.res);
 
       try {
+        const headers = {};
+        if (authRequired && session) headers['Authorization'] = 'Bearer ' + session.access_token;
         const response = await fetch('/api/render', {
           method: 'POST',
-          body: formData
+          body: formData,
+          headers
         });
 
         const reader = response.body.getReader();
@@ -447,6 +492,59 @@
       logEl.appendChild(el);
       logEl.scrollTop = logEl.scrollHeight;
     }
+
+    // ── 로그인 로직 ──
+    async function initAuth() {
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        authRequired = cfg.authEnabled;
+        dailyLimit = cfg.dailyLimit || 2;
+        const bar = document.getElementById('authBar');
+        if (!authRequired) { bar.style.display = 'none'; return; }  // 환경변수 없으면 로그인 숨김
+        bar.style.display = 'block';
+        supabaseClient = supabase.createClient(cfg.supabaseUrl, cfg.supabasePublishableKey);
+        const { data } = await supabaseClient.auth.getSession();
+        session = data.session;
+        renderAuthUI();
+        supabaseClient.auth.onAuthStateChange((_e, s) => { session = s; renderAuthUI(); });
+      } catch (e) {
+        console.error('auth init 실패', e);
+        document.getElementById('authBar').style.display = 'none';
+      }
+    }
+
+    function renderAuthUI() {
+      const out = document.getElementById('authLoggedOut');
+      const inn = document.getElementById('authLoggedIn');
+      if (session && session.user) {
+        out.style.display = 'none';
+        inn.style.display = 'flex';
+        document.getElementById('authUser').textContent = session.user.email;
+        document.getElementById('authQuota').textContent = '무료 ' + dailyLimit + '회/일';
+      } else {
+        out.style.display = 'flex';
+        inn.style.display = 'none';
+      }
+    }
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const email = document.getElementById('emailInput').value.trim();
+      if (!email) { alert('이메일을 입력해주세요.'); return; }
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true; btn.textContent = '전송 중...';
+      const { error } = await supabaseClient.auth.signInWithOtp({
+        email, options: { emailRedirectTo: window.location.origin }
+      });
+      btn.disabled = false; btn.textContent = '로그인 링크 받기';
+      if (error) alert('전송 실패: ' + error.message);
+      else alert('메일로 로그인 링크를 보냈어요! 메일함에서 링크를 클릭하면 로그인됩니다.');
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      if (supabaseClient) await supabaseClient.auth.signOut();
+    });
+
+    initAuth();
   </script>
 </body>
 </html>
