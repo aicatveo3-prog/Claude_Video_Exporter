@@ -295,6 +295,13 @@
           <button class="btn-opt" data-group="fps" data-value="30">30</button>
         </div>
       </div>
+      <div class="setting-group">
+        <div class="setting-label">소리(오디오)</div>
+        <div class="btn-group">
+          <button class="btn-opt active" data-group="audio" data-value="on">포함</button>
+          <button class="btn-opt" data-group="audio" data-value="off">무음</button>
+        </div>
+      </div>
       <div class="setting-group full">
         <div class="setting-label">영상 길이</div>
         <div class="duration-row">
@@ -329,7 +336,7 @@
   <script>
     // ── 상태 ──
     let selectedFile = null;
-    const settings = { res: '1080p', fps: '60' };
+    const settings = { res: '1080p', fps: '60', audio: 'on' };
 
     // ── 로그인/한도 상태 ──
     let supabaseClient = null;
@@ -418,6 +425,7 @@
       formData.append('duration', document.getElementById('duration').value);
       formData.append('fps', settings.fps);
       formData.append('resolution', settings.res);
+      formData.append('audio', settings.audio === 'off' ? 'false' : 'true');
 
       try {
         const headers = {};
