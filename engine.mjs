@@ -4,12 +4,14 @@
 import { chromium } from 'playwright';
 import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'child_process';
+import fs from 'fs';
 
 export async function renderToMp4(url, outputPath, options = {}) {
   const {
     duration = 10,
     fps = 60,
     resolution = '1080p',
+    audio = true,
     onProgress = () => {}
   } = options;
 
@@ -177,19 +179,77 @@ export async function renderToMp4(url, outputPath, options = {}) {
   const totalFrames = Math.ceil(actualDuration * actualFps);
   const frameDurationMs = 1000 / actualFps;
 
-  // ───── 3. ffmpeg 시작 ─────
-  const ffmpeg = spawn(ffmpegPath, [
+  // ───── 3. 오디오 감지 & 추출 ─────
+  // 페이지가 참조하는 <audio>/<video>의 소스를 찾아 페이지 컨텍스트에서 바이트를 받아온다.
+  // (http·blob·data URL 모두 same-origin fetch로 처리 가능)
+  let audioFilePath = null;
+  if (audio) {
+    try {
+      const audioB64 = await page.evaluate(async () => {
+        const urls = [];
+        document.querySelectorAll('audio, video').forEach((el) => {
+          const cands = [el.currentSrc, el.src];
+          el.querySelectorAll('source').forEach((s) => cands.push(s.src));
+          cands.forEach((u) => { if (u && !urls.includes(u)) urls.push(u); });
+        });
+        for (const u of urls) {
+          try {
+            const r = await fetch(u);
+            if (!r.ok) continue;
+            const buf = new Uint8Array(await r.arrayBuffer());
+            if (buf.length === 0) continue;
+            let binary = '';
+            const CHUNK = 0x8000;
+            for (let i = 0; i < buf.length; i += CHUNK) {
+              binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+            }
+            return btoa(binary);
+          } catch (e) { /* 다음 후보 */ }
+        }
+        return null;
+      });
+
+      if (audioB64) {
+        audioFilePath = outputPath + '.audio';
+        fs.writeFileSync(audioFilePath, Buffer.from(audioB64, 'base64'));
+        onProgress({ status: 'info', message: '오디오 트랙 감지됨 — 영상에 합성합니다' });
+      }
+    } catch (e) {
+      // 오디오 추출 실패는 치명적이지 않음 — 무음으로 진행
+      audioFilePath = null;
+    }
+  }
+
+  // ───── 4. ffmpeg 시작 ─────
+  const ffmpegArgs = [
     '-y',
     '-f', 'image2pipe',
     '-framerate', String(actualFps),
-    '-i', '-',
+    '-i', '-'
+  ];
+  if (audioFilePath) {
+    ffmpegArgs.push('-i', audioFilePath);
+  }
+  ffmpegArgs.push(
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-preset', 'veryfast',
-    '-crf', '18',
-    '-movflags', '+faststart',
-    outputPath
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    '-crf', '18'
+  );
+  if (audioFilePath) {
+    // 오디오가 영상보다 길거나 짧아도 영상은 절대 잘리지 않도록:
+    // 스트림 매핑을 명시하고 출력 길이를 영상 길이(-t)로 고정한다.
+    ffmpegArgs.push(
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      '-t', (totalFrames / actualFps).toFixed(3)
+    );
+  }
+  ffmpegArgs.push('-movflags', '+faststart', outputPath);
+
+  const ffmpeg = spawn(ffmpegPath, ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
   ffmpeg.stderr.on('data', () => {});
 
@@ -198,7 +258,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
   ffmpeg.on('exit', () => { ffmpegExited = true; });
   ffmpeg.stdin.on('error', () => {});
 
-  // ───── 4. 프레임별 렌더링 ─────
+  // ───── 5. 프레임별 렌더링 ─────
   try {
     for (let i = 0; i < totalFrames; i++) {
       const timeMs = i * frameDurationMs;
@@ -247,7 +307,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
       }
     }
 
-    // ───── 5. 마무리 ─────
+    // ───── 6. 마무리 ─────
     ffmpeg.stdin.end();
     await new Promise((resolve, reject) => {
       ffmpeg.on('close', (code) => {
@@ -262,6 +322,7 @@ export async function renderToMp4(url, outputPath, options = {}) {
     // 성공·실패와 무관하게 리소스 정리 — 렌더 중 크래시해도 브라우저/ffmpeg가 남지 않도록
     try { ffmpeg.stdin.destroy(); } catch (e) {}
     try { if (!ffmpegExited) ffmpeg.kill('SIGKILL'); } catch (e) {}
+    if (audioFilePath) { try { fs.unlinkSync(audioFilePath); } catch (e) {} }
     await browser.close().catch(() => {});
   }
 }

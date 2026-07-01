@@ -62,6 +62,8 @@ app.post('/api/render', upload.single('file'), async (req, res) => {
   const duration = parseFloat(req.body.duration) || 10;
   const fps = parseInt(req.body.fps) || 60;
   const resolution = req.body.resolution || '1080p';
+  // 오디오 합성: 기본 켜짐. 'false'/'0'/'off'로만 끔.
+  const audio = !['false', '0', 'off'].includes(String(req.body.audio).toLowerCase());
 
   // SSE 설정
   res.setHeader('Content-Type', 'text/event-stream');
@@ -146,6 +148,7 @@ app.post('/api/render', upload.single('file'), async (req, res) => {
           duration,
           fps,
           resolution,
+          audio,
           onProgress: (progress) => send(progress)
         });
 
